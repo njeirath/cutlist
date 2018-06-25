@@ -1,13 +1,11 @@
 import copy
 
-supply = [(144, 0, 12)]
-needs = [(43, 2), (67, 8), (79, 2)]
-
 
 class Needs():
     def __init__(self, needs):
         self.needs = needs
         self.cuts = []
+        self._cost = 0.0
 
     def add_cuts(self, board):
         self.cuts.append(board)
@@ -16,6 +14,7 @@ class Needs():
                 n = self.needs[i]
                 if c == n[0]:
                     self.needs[i] = (n[0], n[1] - 1)
+        self._cost = sum(map(lambda x: x.cost, self.cuts))
 
     def satisfied(self):
         for n in self.needs:
@@ -32,10 +31,10 @@ class Needs():
         return False
 
     def cost(self):
-        return sum(map(lambda x: x.cost, self.cuts))
+        return self._cost
 
     def __str__(self):
-        return "cost: (%i) %i [%s]" % (len(self.cuts), self.cost(), ", ".join(map(lambda x: str(x), self.cuts)))
+        return "cost: (%i) $%.2f [%s]" % (len(self.cuts), self.cost(), ", ".join(map(lambda x: str(x), self.cuts)))
 
 
 class Board():
@@ -79,43 +78,73 @@ class Board():
     def prune_permutations(boards):
         return set(boards)
 
-cuts_available = Board.get_permutations(Board(144, 12.00), list(map(lambda x: x[0], needs)))
-print("Possible cuts:")
-for p in Board.prune_permutations(cuts_available):
-    print(p)
 
-print("")
+class Optimizer():
+    def __init__(self, boards, needs):
+        self.boards = boards
+        self.needs = Needs(needs)
+        self.needed_lengths = list(map(lambda x: x[0], needs))
+        self.min_needs = None
 
-min_needs = None
-def solution_found(needs):
-    global min_needs
-    updated = False
-    if min_needs == None:
-        min_needs = needs
-        updated = True
-    elif needs.cost() < min_needs.cost():
-        min_needs = needs
-        updated = True
+    def optimize(self):
+        cuts_available = []
+        for b in self.boards:
+            cuts_available += Board.get_permutations(b, self.needed_lengths)
 
-    if updated:
-        print(min_needs)
+        cuts_available = Board.prune_permutations(cuts_available)
+        cuts_available = sorted(cuts_available, key=lambda x: x.remaining())
 
-def calculate_cutlist(cuts_available, needs):
-    global min_needs
+        print("Possible cuts:")
+        for c in cuts_available:
+            print(c)
 
-    if needs.satisfied():
-        solution_found(needs)
-        return
+        self.calculate_cutlist(cuts_available, self.needs)
 
-    if min_needs is not None and needs.cost() >= min_needs.cost():
-        return
+    def _solution_found(self, needs):
+        updated = False
+        if self.min_needs == None:
+            self.min_needs = needs
+            updated = True
+        elif needs.cost() < self.min_needs.cost():
+            self.min_needs = needs
+            updated = True
 
-    useful_boards = filter(lambda x: needs.is_useful(x), cuts_available)
+        if updated:
+            print("Current best: %s" % str(self.min_needs))
 
-    for ub in useful_boards:
-        n = copy.deepcopy(needs)
-        n.add_cuts(ub)
-        calculate_cutlist(cuts_available, n)
+    def calculate_cutlist(self, cuts_available, needs):
+        if needs.satisfied():
+            self._solution_found(needs)
+            return
+
+        if self.min_needs is not None and needs.cost() >= self.min_needs.cost():
+            return
+
+        useful_boards = filter(lambda x: needs.is_useful(x), cuts_available)
+
+        for ub in useful_boards:
+            n = copy.deepcopy(needs)
+            n.add_cuts(ub)
+            self.calculate_cutlist(cuts_available, n)
 
 
-calculate_cutlist(cuts_available, Needs(needs))
+needs = [(43, 2), (67, 8), (79, 2)]
+# supply = [Board(144, 12.00), Board(192, 16.00), Board(96, 8.00)]
+# supply = [Board(144, 12.00), Board(192, 16.00)]
+supply = [Board(144, 12.00)]
+
+
+o = Optimizer(supply, needs)
+o.optimize()
+
+
+print("========= SUMMARY =========")
+print("Needed Cuts:")
+for x in needs:
+    print(f'\t{x[1]} x {x[0]}"')
+print("From availabe sizes:")
+for x in supply:
+    print(f'\t{x.len}" @ ${x.cost:.2f}')
+print(f"Can be achieved for ${o.min_needs.cost():.2f} by making the following cuts:")
+for x in o.min_needs.cuts:
+    print(f'from {x.len}" make cuts: {x.cuts} yields waste of {x.remaining()}"')
